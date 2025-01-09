@@ -151,14 +151,22 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
 def load_json_data(uploaded_file):
     """Load data from either JSON or JSONL file"""
     file_extension = uploaded_file.name.split(".")[-1].lower()
-
+    
     if file_extension == "jsonl":
         content = uploaded_file.getvalue().decode("utf-8")
-        lines = content.strip().split("\n")
-        first_line = json.loads(lines[0].replace("'", '"'))
-        return first_line
+        lines = [line.strip() for line in content.split("\n") if line.strip()]
+        if not lines:
+            raise Exception("JSONL file is empty")
+        
+        first_line = json.loads(lines[0])
+        return {"data": [first_line]}
     else:
-        return json.load(uploaded_file)
+        data = json.load(uploaded_file)
+        if not isinstance(data, dict):
+            data = {"data": [data]}
+        elif "data" not in data:
+            data = {"data": [data]}
+        return data
 
 def display_upload_page():
     # Initialize page state if not exists
