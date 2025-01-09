@@ -107,39 +107,30 @@ def create_dataframe_from_json(json_data, selected_paths):
     
     return pd.DataFrame(records)
 
-def format_value(value, level=0):
-    """Format a single value for display with proper indentation."""
-    indent = "    " * level
-    
+def format_value(value):
+    """Format a single value for display."""
     if isinstance(value, dict):
         formatted_lines = []
         for k, v in value.items():
             if isinstance(v, (dict, list)):
-                formatted_lines.append(f"{indent}{k}:")
-                formatted_lines.extend(format_value(v, level + 1).split("\n"))
+                formatted_lines.append(f"{k}:")
+                formatted_lines.extend("    " + line for line in format_value(v).split("\n"))
             else:
-                formatted_lines.append(f"{indent}{k}: {v}")
+                formatted_lines.append(f"{k}:{v}")
         return "\n".join(formatted_lines)
     elif isinstance(value, list):
         # For list of dictionaries, format each item
         if value and isinstance(value[0], dict):
             formatted_items = []
-            for idx, item in enumerate(value):
+            for item in value:
                 item_lines = []
-                item_lines.append(f"{indent}[{idx}]:")
                 for k, v in item.items():
-                    if isinstance(v, (dict, list)):
-                        item_lines.append(f"{indent}    {k}:")
-                        item_lines.extend(["    " + line for line in format_value(v, level + 2).split("\n")])
-                    else:
-                        item_lines.append(f"{indent}    {k}: {v}")
+                    item_lines.append(f'"{k}" : {json.dumps(v, ensure_ascii=False)}')
                 formatted_items.append("\n".join(item_lines))
-            return "\n".join(formatted_items)
+            return "\n\n".join(formatted_items)
         else:
-            # For simple lists, show on one line
-            values = [str(v) for v in value]
-            return f"{indent}[{', '.join(values)}]"
-    return f"{indent}{str(value)}"
+            return ", ".join(map(str, value))
+    return str(value)
 
 def display_labeling_page():
     st.set_page_config(layout="wide")
