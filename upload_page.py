@@ -159,7 +159,8 @@ def load_json_data(uploaded_file):
             raise Exception("JSONL file is empty")
         
         first_line = json.loads(lines[0])
-        return {"data": [first_line]}
+
+        return {"data": [json.loads(line) for line in lines]}
     else:
         data = json.load(uploaded_file)
         if not isinstance(data, dict):
