@@ -1,4 +1,5 @@
 import streamlit as st
+from labeling_page import create_dataframe_from_json
 
 @st.fragment
 def display_question_page():
@@ -19,7 +20,17 @@ def display_question_page():
         st.session_state.form_data_labels = ""
     if "labels_input_key" not in st.session_state:
         st.session_state.labels_input_key = "labels_input_0"
+    
+    # Get the JSON data and selected columns from session state
+    json_data = st.session_state.get("json_data")  # Make sure to store the original JSON data
+    selected_columns = st.session_state.get("selected_columns", [])
 
+    # Create DataFrame if not already created
+    if "dataset" not in st.session_state and json_data and selected_columns:
+        st.session_state.dataset = create_dataframe_from_json(json_data, selected_columns)
+
+    st.markdown("### Dataset Preview:")
+    st.write(st.session_state.dataset.head(5))
     st.markdown("### Add Questions and Related Information")
 
     # Dropdown for selecting question type (outside the form)
