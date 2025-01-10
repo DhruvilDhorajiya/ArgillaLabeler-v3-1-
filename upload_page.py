@@ -109,22 +109,27 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
     if "tree_toggles" not in st.session_state:
         st.session_state.tree_toggles = {}
     
+    # Add temporary state for checkboxes if not exists
+    if "temp_selected_paths" not in st.session_state:
+        st.session_state.temp_selected_paths = {
+            col['path'] for col in st.session_state.selected_columns
+        }
+    
     for key, subtree in tree.items():
         current_path = f"{parent_path}.{key}" if parent_path else key
         indent = "&nbsp;" * (level * 4)
         
         if subtree is None:  # Leaf node
-            # Get sample value
             sample_value = get_path_value(json_data, current_path)
             sample_display = str(sample_value)
             if len(sample_display) > 50:
                 sample_display = sample_display[:47] + "..."
             
-            # Create indented checkbox
+            # Use temp_selected_paths instead of selected_columns
             if st.checkbox(
                 f"{indent}📄 {key} ({sample_display})", 
                 key=f"checkbox_{current_path}",
-                value=any(col['path'] == current_path for col in st.session_state.selected_columns)
+                value=current_path in st.session_state.temp_selected_paths
             ):
                 selected_paths.add(current_path)
         else:  # Branch node
@@ -199,40 +204,23 @@ def display_upload_page():
             # Render the tree and get selected paths
             selected_paths = render_tree(tree, json_data)
 
-            # Update session state with selected paths
-            st.session_state.selected_columns = [
-                {
-                    "id": f"path_{path}",
-                    "text": path,
-                    "path": path
-                }
-                for path in selected_paths
-            ]
+            if st.button("Next"):
+                if selected_paths:
+                    st.session_state.selected_columns = [
+                        {
+                            "id": f"path_{path}",
+                            "text": path,
+                            "path": path
+                        }
+                        for path in selected_paths
+                    ]
+                    st.session_state.temp_selected_paths = selected_paths
+                    st.session_state.page = 2
+                    st.rerun()
+                else:
+                    st.warning("Please select at least one field before proceeding.")
 
-            # Display current selection
-            if st.session_state.selected_columns:
-                st.markdown("### Selected Fields")
-                for col in st.session_state.selected_columns:
-                    # Display only the last part of the path
-                    display_name = col['path'].split('.')[-1]
-                    st.markdown(f"- {display_name}")
-
-            # Navigation buttons
-            col1, col2 = st.columns([1,1])
-            with col1:
-                if st.button("Save"):
-                    if st.session_state.selected_columns:
-                        st.success("Selected fields saved!")
-                    else:
-                        st.warning("Please select at least one field before saving.")
-
-            with col2:
-                if st.button("Next"):
-                    if st.session_state.selected_columns:
-                        st.session_state.page = 2
-                        st.rerun()
-                    else:
-                        st.warning("Please select at least one field before proceeding.")
+            
 
         except json.JSONDecodeError:
             st.error("Invalid JSON or JSONL file.")
