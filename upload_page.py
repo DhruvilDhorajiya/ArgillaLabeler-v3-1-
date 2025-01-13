@@ -6,31 +6,36 @@ from collections import defaultdict
 
 def get_path_value(data: Union[Dict, List], path: str) -> Any:
     """Get value from nested structure using dot notation path."""
-    current = data
     try:
-        # Handle array at root level
-        if isinstance(current, list):
-            if len(current) == 0:
-                return None
-            current = current[0]
-            
-        for part in path.split('.'):
+        current = data
+        parts = path.split('.')
+        
+        # Special handling for 'data' at the root
+        if parts[0] == 'data' and isinstance(current.get('data'), list):
+            current = current['data']
+            # For preview, just show first item
+            if len(parts) > 1 and current:
+                current = current[0]
+            parts = parts[1:]
+        
+        # Navigate through the path
+        for part in parts:
             if isinstance(current, dict):
                 current = current.get(part)
             elif isinstance(current, list):
-                # Try to get first non-null item for display
-                current = next((item for item in current if item is not None), None)
-                if isinstance(current, dict):
-                    current = current.get(part)
+                # If we're looking at a list, we want to:
+                # 1. Show all values for actual data processing
+                # 2. Show first value for preview
+                preview_mode = True  # Set this based on context
+                if preview_mode and current:
+                    current = current[0].get(part) if isinstance(current[0], dict) else None
+                else:
+                    return [item.get(part) if isinstance(item, dict) else None for item in current]
             else:
                 return None
-            
-            # Handle nested arrays
-            if isinstance(current, list) and len(current) > 0:
-                current = current[0]
                 
         return current
-    except (KeyError, IndexError, TypeError):
+    except (KeyError, IndexError, AttributeError):
         return None
 
 def flatten_json(data: Union[Dict, List], parent_key: str = '', sep: str = '.') -> List[str]:
@@ -133,28 +138,23 @@ def organize_paths(paths: List[str], json_data: Any) -> Dict[str, Any]:
     return sort_dict_by_json_order(tree)
 
 def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", level: int = 0) -> dict:
-    """Recursively render the tree structure and return selected paths and metadata paths."""
+    """Recursively render the tree structure."""
     selected_paths = {"fields": set(), "metadata": set()}
-    
-    # Initialize toggle states in session state if not exists
-    if "tree_toggles" not in st.session_state:
-        st.session_state.tree_toggles = {}
-    
-    # Add temporary state for checkboxes if not exists
-    if "temp_selected_paths" not in st.session_state:
-        st.session_state.temp_selected_paths = set()
-    if "temp_metadata_paths" not in st.session_state:
-        st.session_state.temp_metadata_paths = set()
     
     for key, subtree in tree.items():
         current_path = f"{parent_path}.{key}" if parent_path else key
         indent = "&nbsp;" * (level * 4)
         
         if subtree is None:  # Leaf node
-            sample_value = get_path_value(json_data, current_path)
-            sample_display = str(sample_value)
-            if len(sample_display) > 50:
-                sample_display = sample_display[:47] + "..."
+            value = get_path_value(json_data, current_path)
+            
+            # Format display value
+            if isinstance(value, list):
+                sample_display = f"[{len(value)} items] Example: {str(value[0])[:50]}" if value else "[]"
+            else:
+                sample_display = str(value)
+                if len(sample_display) > 50:
+                    sample_display = sample_display[:47] + "..."
             
             col1, col2, col3 = st.columns([2, 0.5, 1])
             
@@ -162,7 +162,6 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
                 st.markdown(f"{indent}📄 {key} ({sample_display})", unsafe_allow_html=True)
             
             with col2:
-                # Single checkbox for selection
                 is_selected = st.checkbox(
                     "Select",
                     key=f"select_{current_path}",
@@ -170,7 +169,6 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
                 )
             
             with col3:
-                # Show radio buttons only if checkbox is selected
                 if is_selected:
                     field_type = st.radio(
                         "Type",
@@ -181,24 +179,24 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
                         label_visibility="collapsed"
                     )
                     
-                    # Update paths based on radio selection
+                    # Update selected paths
                     if field_type == "Display":
                         selected_paths["fields"].add(current_path)
                         selected_paths["metadata"].discard(current_path)
                         st.session_state.temp_selected_paths.add(current_path)
                         st.session_state.temp_metadata_paths.discard(current_path)
-                    else:  # Metadata
+                    else:
                         selected_paths["metadata"].add(current_path)
                         selected_paths["fields"].discard(current_path)
                         st.session_state.temp_metadata_paths.add(current_path)
                         st.session_state.temp_selected_paths.discard(current_path)
                 else:
-                    # If checkbox is unchecked, remove from both paths
+                    # Clear selections if unchecked
                     selected_paths["fields"].discard(current_path)
                     selected_paths["metadata"].discard(current_path)
                     st.session_state.temp_selected_paths.discard(current_path)
                     st.session_state.temp_metadata_paths.discard(current_path)
-            
+
         else:  # Branch node
             # Rest of the branch node code remains the same
             toggle_key = f"toggle_{current_path}"
@@ -220,29 +218,70 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
     return selected_paths
 
 def load_json_data(uploaded_file):
-    """Load data from either JSON or JSONL file"""
-    file_extension = uploaded_file.name.split(".")[-1].lower()
-    
-    if file_extension == "jsonl":
-        content = uploaded_file.getvalue().decode("utf-8")
-        lines = [line.strip() for line in content.split("\n") if line.strip()]
-        if not lines:
-            raise Exception("JSONL file is empty")
+    """Load data from either JSON or JSONL file and normalize into a consistent format."""
+    try:
+        file_extension = uploaded_file.name.split(".")[-1].lower()
         
-        parsed_lines = [json.loads(line) for line in lines]
-        
-        # Validate JSONL consistency
-        if not validate_jsonl_consistency(parsed_lines):
-            st.warning("Warning: Inconsistent schema detected in JSONL file. Some fields might not be available for all entries.")
+        if file_extension == "jsonl":
+            # Read JSONL file line by line
+            content = uploaded_file.getvalue().decode("utf-8")
+            lines = [line.strip() for line in content.split("\n") if line.strip()]
             
-        return {"data": parsed_lines}
-    else:
-        data = json.load(uploaded_file)
-        if not isinstance(data, dict):
-            data = {"data": [data]}
-        elif "data" not in data:
-            data = {"data": [data]}
-        return data
+            if not lines:
+                st.error("JSONL file is empty")
+                return None
+            
+            # Parse each line as JSON
+            records = []
+            for line in lines:
+                try:
+                    record = json.loads(line)
+                    records.append(record)
+                except json.JSONDecodeError:
+                    continue  # Skip invalid lines
+            
+            if not records:
+                st.error("No valid JSON records found in JSONL file")
+                return None
+            
+            # Normalize the data structure
+            return {"data": records}
+            
+        else:  # JSON file
+            data = json.load(uploaded_file)
+            
+            # Normalize the data structure
+            if isinstance(data, list):
+                return {"data": data}
+            elif isinstance(data, dict):
+                if 'data' in data and isinstance(data['data'], list):
+                    return data
+                elif 'data' in data:
+                    return {"data": [data['data']]}
+                else:
+                    return {"data": [data]}
+            else:
+                st.error("Invalid JSON structure")
+                return None
+                
+    except Exception as e:
+        st.error(f"Error processing file: {str(e)}")
+        return None
+
+def validate_jsonl_consistency(records: List[dict]) -> bool:
+    """Check if all records in JSONL have similar structure."""
+    if not records:
+        return True
+    
+    # Get structure of first record
+    first_keys = set(flatten_json(records[0]))
+    
+    # Check first few records for consistency
+    for record in records[1:min(10, len(records))]:
+        current_keys = set(flatten_json(record))
+        if not (first_keys & current_keys):  # If no common keys
+            return False
+    return True
 
 def display_upload_page():
     # Initialize page state if not exists
@@ -255,6 +294,14 @@ def display_upload_page():
         st.session_state.metadata_columns = []
     if "json_data" not in st.session_state:
         st.session_state.json_data = None
+    # Initialize tree toggles
+    if "tree_toggles" not in st.session_state:
+        st.session_state.tree_toggles = {}
+    # Initialize temporary states for selections
+    if "temp_selected_paths" not in st.session_state:
+        st.session_state.temp_selected_paths = set()
+    if "temp_metadata_paths" not in st.session_state:
+        st.session_state.temp_metadata_paths = set()
 
     st.title("ArgillaLabeler")
     
@@ -263,13 +310,24 @@ def display_upload_page():
 
     if uploaded_file is not None:
         try:
-            # Load and store JSON data
+            # Load and store JSON/JSONL data
             json_data = load_json_data(uploaded_file)
+            
+            if json_data is None:
+                return
+                
+            # Validate data consistency for JSONL
+            if uploaded_file.name.endswith('.jsonl'):
+                if not validate_jsonl_consistency(json_data.get('data', [])):
+                    st.warning("Warning: Records in JSONL file have inconsistent structure. Some fields might not be available for all records.")
+            
             st.session_state.json_data = json_data
 
             # Get all possible paths and organize them into a tree
             paths = flatten_json(json_data)
             tree = organize_paths(paths, json_data)
+            
+            
             
             st.markdown("### Select Fields to Label")
             st.markdown("Expand sections and select the fields you want to include in your labeling task:")
@@ -315,32 +373,3 @@ def display_upload_page():
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
             st.error(f"Error details: {type(e).__name__}")  # Additional error info
-
-def validate_jsonl_consistency(lines: List[dict]) -> bool:
-    """Validate that all JSONL entries have consistent schema."""
-    if not lines:
-        return True
-        
-    first_keys = set(_get_all_paths(lines[0]))
-    
-    for line in lines[1:10]:  # Check first 10 lines for performance
-        current_keys = set(_get_all_paths(line))
-        if current_keys != first_keys:
-            return False
-    return True
-
-def _get_all_paths(obj: Union[Dict, List], parent_key: str = '') -> List[str]:
-    """Helper function to get all paths in an object."""
-    paths = []
-    
-    if isinstance(obj, dict):
-        for key, value in obj.items():
-            new_key = f"{parent_key}.{key}" if parent_key else key
-            if isinstance(value, (dict, list)):
-                paths.extend(_get_all_paths(value, new_key))
-            else:
-                paths.append(new_key)
-    elif isinstance(obj, list) and obj:
-        paths.extend(_get_all_paths(obj[0], parent_key))
-        
-    return paths
