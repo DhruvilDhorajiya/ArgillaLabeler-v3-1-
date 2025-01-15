@@ -86,14 +86,13 @@ def create_dataframe_from_json(json_data, selected_paths):
     if isinstance(selected_paths, str):
         selected_paths = json.loads(selected_paths)
 
-    # ─────────────────────────────────────
-    # 1) Filter selections to avoid duplicates
-    # ─────────────────────────────────────
+    # Filter selections to avoid duplicates while maintaining order
     filtered_paths = filter_redundant_paths(selected_paths)
-
+    
     records = []
     for item in json_data['data']:
         record = {}
+        # Use OrderedDict or maintain order in regular dict (Python 3.7+)
         for path_info in filtered_paths:
             column_name = path_info['text']
             
@@ -105,7 +104,14 @@ def create_dataframe_from_json(json_data, selected_paths):
             record[column_name] = value
         records.append(record)
     
-    return pd.DataFrame(records)
+    # Create DataFrame with explicit column order
+    df = pd.DataFrame(records)
+    
+    # Reorder columns to match the order in filtered_paths
+    ordered_columns = [path_info['text'] for path_info in filtered_paths]
+    df = df[ordered_columns]
+    
+    return df
 
 def format_value(value):
     """Format a single value for display."""
@@ -180,10 +186,18 @@ def display_labeling_page():
                 
                 # Get only the user-selected data columns (exclude columns that correspond to question titles)
                 question_titles = [q.get('question_title', '') for q in st.session_state.get("questions", [])]
-                data_columns = [col for col in dataset.columns if col not in question_titles]
                 
-                # Build a dictionary for the current record from those columns
-                record_dict = record[data_columns].to_dict()
+                # Maintain order from selected_columns
+                data_columns = []
+                for col_info in st.session_state.get("selected_columns", []):
+                    col_name = col_info['text']
+                    if col_name in dataset.columns and col_name not in question_titles:
+                        data_columns.append(col_name)
+                
+                # Build an ordered dictionary for the current record
+                record_dict = {}
+                for col in data_columns:
+                    record_dict[col] = record[col]
                 
                 # Display the chosen columns recursively with our format_value function
                 st.code(format_value(record_dict), language="json")
