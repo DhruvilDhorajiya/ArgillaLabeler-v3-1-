@@ -139,7 +139,10 @@ def organize_paths(paths: List[str], json_data: Any) -> Dict[str, Any]:
 
 def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", level: int = 0) -> dict:
     """Recursively render the tree structure."""
-    selected_paths = {"fields": set(), "metadata": set()}
+    selected_paths = {
+        "fields": [],
+        "metadata": []
+    }
     
     for key, subtree in tree.items():
         current_path = f"{parent_path}.{key}" if parent_path else key
@@ -148,18 +151,11 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
         if subtree is None:  # Leaf node
             value = get_path_value(json_data, current_path)
             
-            # Format display value
-            if isinstance(value, list):
-                sample_display = f"[{len(value)} items] Example: {str(value[0])[:50]}" if value else "[]"
-            else:
-                sample_display = str(value)
-                if len(sample_display) > 50:
-                    sample_display = sample_display[:47] + "..."
-            
             col1, col2, col3 = st.columns([2, 0.5, 1])
             
             with col1:
-                st.markdown(f"{indent}📄 {key} ({sample_display})", unsafe_allow_html=True)
+                # Remove the sample display, just show the key
+                st.markdown(f"{indent}📄 {key}", unsafe_allow_html=True)
             
             with col2:
                 is_selected = st.checkbox(
@@ -179,26 +175,31 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
                         label_visibility="collapsed"
                     )
                     
-                    # Update selected paths
+                    # Update selected paths while maintaining order
                     if field_type == "Display":
-                        selected_paths["fields"].add(current_path)
-                        selected_paths["metadata"].discard(current_path)
+                        if current_path not in selected_paths["fields"]:
+                            selected_paths["fields"].append(current_path)
+                        if current_path in selected_paths["metadata"]:
+                            selected_paths["metadata"].remove(current_path)
                         st.session_state.temp_selected_paths.add(current_path)
                         st.session_state.temp_metadata_paths.discard(current_path)
                     else:
-                        selected_paths["metadata"].add(current_path)
-                        selected_paths["fields"].discard(current_path)
+                        if current_path not in selected_paths["metadata"]:
+                            selected_paths["metadata"].append(current_path)
+                        if current_path in selected_paths["fields"]:
+                            selected_paths["fields"].remove(current_path)
                         st.session_state.temp_metadata_paths.add(current_path)
                         st.session_state.temp_selected_paths.discard(current_path)
                 else:
                     # Clear selections if unchecked
-                    selected_paths["fields"].discard(current_path)
-                    selected_paths["metadata"].discard(current_path)
+                    if current_path in selected_paths["fields"]:
+                        selected_paths["fields"].remove(current_path)
+                    if current_path in selected_paths["metadata"]:
+                        selected_paths["metadata"].remove(current_path)
                     st.session_state.temp_selected_paths.discard(current_path)
                     st.session_state.temp_metadata_paths.discard(current_path)
 
         else:  # Branch node
-            # Rest of the branch node code remains the same
             toggle_key = f"toggle_{current_path}"
             if toggle_key not in st.session_state.tree_toggles:
                 st.session_state.tree_toggles[toggle_key] = True
@@ -212,8 +213,13 @@ def render_tree(tree: Dict[str, Any], json_data: Any, parent_path: str = "", lev
             
             if st.session_state.tree_toggles[toggle_key]:
                 child_paths = render_tree(subtree, json_data, current_path, level + 1)
-                selected_paths["fields"].update(child_paths["fields"])
-                selected_paths["metadata"].update(child_paths["metadata"])
+                # Extend lists instead of updating sets
+                for path in child_paths["fields"]:
+                    if path not in selected_paths["fields"]:
+                        selected_paths["fields"].append(path)
+                for path in child_paths["metadata"]:
+                    if path not in selected_paths["metadata"]:
+                        selected_paths["metadata"].append(path)
     
     return selected_paths
 
@@ -337,24 +343,24 @@ def display_upload_page():
 
             if st.button("Next"):
                 if selected_paths["fields"] or selected_paths["metadata"]:
-                    # Store display columns in selected_columns
+                    # Store display columns in selected_columns maintaining order
                     st.session_state.selected_columns = [
                         {
                             "id": f"path_{path}",
                             "text": path,
                             "path": path,
                         }
-                        for path in selected_paths["fields"]
+                        for path in selected_paths["fields"]  # fields are already in order
                     ]
                     
-                    # Store metadata columns separately
+                    # Store metadata columns separately maintaining order
                     st.session_state.metadata_columns = [
                         {
                             "id": f"path_{path}",
                             "text": path,
                             "path": path,
                         }
-                        for path in selected_paths["metadata"]
+                        for path in selected_paths["metadata"]  # metadata are already in order
                     ]
                     
                     # Update temporary states
